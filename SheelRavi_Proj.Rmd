@@ -1,0 +1,611 @@
+---
+title: "Cancer Classification"
+author: "Ravi Sheel"
+date: "2023-01-20"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(echo = TRUE)
+```
+
+## AGENDAS
+
+1) Data set Description
+2) Data Cleaning and Preprocessing
+3) Correlation Analysis and Distribution 
+4) Feature Engineering (t-sne,PCA, Scaling)
+5) Multiple Linear Regression (R^2, AdjR^2, RMSE, Residuals vs Fitted)
+6) Scatter plot of 2 Class
+7) Training and Testing of Model:
+    1) With All Columns of Data set (Normal Method)
+    2) With PCA features (Optimal Method)
+    3) Models:- LDA, Logistic Regression, KNN, Naive Bayesian, Random Forest 
+8) Conclusion
+
+
+## Research Questions:
+
+1) What is the relationship between the feature columns and the target columns?
+2) Is it possible to distinguish between these two labels?
+3) What is the effect on the accuracy of the classification by reducing the dimension of dataset? 
+4) From Multiple Linear Reg, which characteristic is contributing the most, and can we anticipate it?
+5) Which model—Logit, LDA, Naive Bayesian, Random Forest or KNN—produces predictions for both classes more accurately?
+
+
+
+## DataSet Source
+
+## <https://data.world/health/breast-cancer-wisconsin>
+## University of 	Wisconsin, Clinical Sciences Center, Madison
+
+## Attribute information
+
+1)  ID number
+2)  **Diagnosis (M = malignant, B = benign)**
+3)  3-32)
+
+## Ten real-valued features are computed for each cell nucleus:
+
+    a) radius (mean of distances from center to points on the perimeter)
+    b) texture (standard deviation of gray-scale values)
+    c) perimeter
+    d) area
+    e) smoothness (local variation in radius lengths)
+    f) compactness (perimeter^2 / area - 1.0)
+    g) concavity (severity of concave portions of the contour)
+    h) concave points (number of concave portions of the contour)
+    i) symmetry 
+    j) fractal dimension ("coastline approximation" - 1)
+
+## Class distribution: 357 benign, 212 malignant
+
+## Importing all necessary libraries
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(dplyr)
+library(psych)
+library(ggplot2)
+library(scales)
+library(caret)
+library(PerformanceAnalytics)
+library(corrplot)
+library(GGally)
+library(factoextra)
+library(ggfortify)
+library(MASS)
+library(tidyverse)
+library(BSDA)
+library(pROC)
+library(e1071)
+library(randomForest)
+
+rm(list=ls()); cat("")
+```
+
+## EXPLORATORY DATA ANALYSIS
+
+## Data Importing to the Environment
+
+```{r message=FALSE, warning=FALSE}
+Cancer_Data <- read_csv("DATA/Cancer_Data.csv")
+head(Cancer_Data)
+```
+
+
+## Dimension of Data-Set
+
+```{r}
+dim(Cancer_Data)
+```
+
+## Data Cleaning / Preprocessing
+
+```{r}
+str(Cancer_Data)
+```
+
+```{r}
+colSums(is.na(Cancer_Data))
+```
+
+```{r}
+Cancer_Data <- Cancer_Data[, -which(colnames(Cancer_Data) == "...33" )]
+Cancer_Data$diagnosis <- as.factor(Cancer_Data$diagnosis)
+colnames(Cancer_Data) <- gsub(" ", "_", colnames(Cancer_Data))
+str(Cancer_Data)
+```
+
+## SAVING THE CLEAN DATA TO .CSV FILE
+
+```{r}
+#write.csv(Cancer_Data, file = "Cancer_clean.csv", row.names = FALSE)
+
+```
+
+```{r}
+summary(Cancer_Data)
+```
+
+```{r}
+describe(Cancer_Data)
+```
+
+```{r}
+table(Cancer_Data$diagnosis)
+```
+
+## PERCENTAGE OF MALIGNANT AND BENIGN CANCER DATA IN OUR DATASET
+
+```{r}
+print(sprintf("Percent of malignant Cancer in Our Data is: %.1f%%",round(table(Cancer_Data$diagnosis)[1]/nrow(Cancer_Data)*100,1)))
+```
+
+```{r}
+print(sprintf("Percent of Benign  Cancer in Our Data is: %.1f%%",round(table(Cancer_Data$diagnosis)[2]/nrow(Cancer_Data)*100,1)))
+```
+
+## Correlation of the Features and Distribution
+
+## Correlation Analysis
+
+### The correlation coefficient can range from -1 to 1, where a value of -1 indicates a perfect negative correlation (when one variable increases, the other decreases), a value of 1 indicates a perfect positive correlation (when one variable increases, the other also increases), and a value of 0 indicates no correlation (there is no relationship between the two variables).
+
+```{r warning=FALSE}
+
+chart.Correlation(Cancer_Data[,c(3:30)],histogram=TRUE, col="grey10", pch=1)
+
+```
+
+
+
+### If two features are highly correlated, it means that they are providing similar information to the model, which can lead to over-fitting and reduced model performance.
+
+### It is important to handle highly correlated features appropriately to avoid over-fitting and removing those feature with the help of PCA (Principal Component Analysis) [Feature extraction technique]
+
+```{r message=FALSE, warning=FALSE}
+chart.Correlation(Cancer_Data[,c(3:12)],histogram=TRUE, col="grey10", pch=1, main="Cancer Mean" , method = "pearson")
+```
+
+```{r}
+densityplot( ~ radius_mean+  perimeter_mean + concave_points_mean + concavity_mean | diagnosis, data = Cancer_Data, xlab = "Mean Features Density Which are Highly corelated", bw = 20)
+
+```
+
+```{r warning=FALSE}
+chart.Correlation(Cancer_Data[,c(13:22)],histogram=TRUE, col="grey10", pch=1, main="Cancer SE" , method = "pearson")
+
+```
+
+```{r}
+densityplot( ~ radius_se+  perimeter_se + concave_points_se + concavity_se+ fractal_dimension_se+ area_se| diagnosis, data = Cancer_Data, xlab = "SE Features Density Which are Highly corelated", bw = 50)
+
+```
+
+```{r warning=FALSE}
+chart.Correlation(Cancer_Data[,c(23:32)],histogram=TRUE, col="grey10", pch=1, main="Cancer Worst" , method = "pearson")
+
+```
+
+```{r}
+densityplot( ~ perimeter_worst+ radius_worst+ area_worst+ concavity_worst+ concave_points_worst+ fractal_dimension_worst | diagnosis, data = Cancer_Data, xlab = "Worst Features Density Which are Highly corelated", bw = 200)
+
+```
+
+```{r}
+corr_mat_mean <- cor(Cancer_Data[,3:12])
+corrplot(corr_mat_mean, order = "hclust", tl.cex = 1, addrect = 8)
+
+```
+
+```{r}
+corr_mat_se <- cor(Cancer_Data[,13:22])
+corrplot(corr_mat_se, order = "hclust", tl.cex = 1, addrect = 8)
+
+```
+
+```{r}
+corr_mat_worst <- cor(Cancer_Data[,23:32])
+corrplot(corr_mat_worst, order = "hclust", tl.cex = 1, addrect = 8)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+library(viridis)
+
+
+ggcorr(Cancer_Data[,c(2:32)], name = "corr", label = TRUE) +
+  scale_fill_viridis(option = "magma") +
+  theme_dark() +  
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) +  
+  labs(title = "Cancer Features Correlation") +
+  theme(plot.title = element_text(face = 'bold', color = 'red', size = 16)) 
+
+```
+
+# FEATURE ENGINEERING
+
+# Principal Component Analysis:
+
+## PCA (Principal Component Analysis) is a statistical technique used to reduce the dimensionality of a data-set by identifying a smaller number of important features, known as principal components, from a larger set of features.
+
+## In simpler terms, PCA helps to simplify a complex dataset by identifying the key patterns or trends in the data, and summarizing this information into a smaller set of components that can be more easily analyzed and interpreted.
+
+```{r}
+feat <- names(Cancer_Data)
+feat <- feat[3:length(feat)]
+
+features  <- Cancer_Data[,feat]
+features
+
+```
+
+## Scaling the features before applying PCA
+
+## Why we do Scaling ?
+
+## Scaling is important because numerical features often have different units or ranges of values, which can make it difficult to compare and interpret the data. For example, if one feature is measured in meters and another is measured in grams, the values of the two features will be incomparable without scaling.
+
+## The scale() function in R performs standardization, also known as z-score normalization
+
+```{r}
+scaled_features <- scale(features, center = F)
+head(scaled_features)
+```
+
+## Applying PCA
+
+```{r message=FALSE, warning=FALSE}
+
+pca_feature <- prcomp(scaled_features, cor=TRUE)
+summary(pca_feature)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+
+plot(pca_feature, type=c("l"), main='Principal Componenet Analysis')
+grid(nx = 30, ny = 14)
+title(xlab = "Components")
+
+```
+
+```{r}
+pca_feat <- get_pca_var(pca_feature)
+pca_feat
+```
+
+```{r}
+head(pca_feat$contrib)
+```
+
+```{r}
+corrplot(pca_feat$cor,is.corr=FALSE)
+
+```
+
+## Now, we are interested in looking which Features are contributing to each Dimensions and their contributions
+
+```{r message=FALSE, warning=FALSE}
+library(gridExtra)
+p1 <- fviz_contrib(pca_feature, choice="var", axes=1, fill="red", color="grey", top=20)
+plot(p1)
+
+```
+
+```{r message=FALSE, warning=FALSE}
+library(gridExtra)
+
+p2 <- fviz_contrib(pca_feature, choice="var", axes=c(1,2), fill="red", color="grey", top=20)
+plot(p2)
+
+```
+
+## Contributions of Features till 8 Dimensions Because we achieved Cumulative Proportion of 0.94673 \~ 95%. Further we will be training our model on 8 Dimension PCA Features Data and taking all the features data of the data-set and will compare the accuracy achieved.
+
+```{r}
+
+p <- fviz_contrib(pca_feature, choice="var", axes=c(1,2,3,4,5,6,7,8), fill="red", color="grey", top=20)
+plot(p)
+
+```
+
+```{r}
+dim8feature <-  p$data[order(p$data$contrib,  decreasing = TRUE), ]
+dim8feat <- dim8feature$name[1:16]
+dim8feat
+```
+
+
+
+## Applying multiple Linear Regression with 8 Dimension PCA Feature to predict area_se with other features (concavity_se \~ concave_points_se) Because area_se has higher contribution.
+
+```{r}
+
+pred <- Cancer_Data$area_se
+data <- dim8feature$name[2:15]
+
+lrdata <- cbind(pred, Cancer_Data[, data])
+
+set.seed(123)
+index <- createDataPartition(y = lrdata$pred, p = 0.8, list = FALSE)
+train_mlin_data <- lrdata[index, ]
+test_mlin_data <- lrdata[-index, ]
+
+
+mlinr_model <- lm(pred~ ., data = train_mlin_data )
+summary(mlinr_model)
+
+```
+
+# The "Multiple R-squared" and "Adjusted R-squared" values give measures of how well the model fits the data. In this case, the model explains 94.59% of the variance in the "pred" variable, which is a very good fit. The "F-statistic" and associated p-value provide a test of the overall significance of the model. Here, the p-value is extremely small (less than 2.2e-16), indicating that the model is highly significant in predicting "pred".
+
+```{r}
+plot(mlinr_model, which = 1, xlim = c(0,30))
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+library(Metrics)
+
+prediction_mlin_model <- predict(mlinr_model, newdata = test_mlin_data )
+# prediction_mlin_model
+
+rmse <- RMSE(prediction_mlin_model, test_mlin_data$pred)
+cat("The root mean square error: ", rmse, "\n")
+
+```
+
+```{r}
+anova(mlinr_model)
+```
+
+```{r}
+
+options(repr.plot.width=10,repr.plot.height=10)
+plot(mlinr_model, col="red")
+```
+
+
+## Plotting scatter-plot of Diagnosis Class with PCA features
+
+```{r}
+autoplot(pca_feature, data = Cancer_Data, colour="diagnosis")
+
+```
+
+```{r}
+
+ggplot(pca_feature, aes(x = PC2 , y = PC3, color =Cancer_Data$diagnosis )) + geom_point()
+```
+
+```{r}
+
+ggplot(pca_feature, aes(x = PC3 , y = PC4, color =Cancer_Data$diagnosis )) + geom_point()
+
+```
+
+## t-sne(t-distributed stocahstic neighbor embedding) ??
+## t-SNE algorithm uses probability distributions to measure the similarity between datapoints in high-dimensional space and then maps these similarities to a lower-dimensional space, where the points can be visualized in a scatter plot. t-SNE is particularly useful for visualizing complex datasets, where the relationships between datapoints are difficult to discern in high-dimensional space.
+
+
+```{r warning=FALSE}
+
+library(Rtsne)
+
+diag <- Cancer_Data[,2]
+
+set.seed(123)
+
+Tsne <- Rtsne(Cancer_Data[,c(3:32)], dims=2, perplexity=30, verbose=TRUE, pca=TRUE, pca_scale=TRUE, theta=0.01, max_iter=1000)
+
+```
+
+```{r}
+
+colors <- ifelse(diag == "M", "red", "blue")
+plot(Tsne$Y, col=colors, main="t-Distributed Stochastic Neighbor Embedding (t-SNE)", xlab="t-SNE 1st dimm.", ylab="t-SNE 2nd dimm.")
+
+```
+
+## NOW WE WILL TRAIN OUR MODEL FOR CLASSIFICATION
+
+## APPLYING CLASSIFIFCATION METHODS TO IDENTIFY Target: M - Malignant B - Benign
+
+## LINEAR DISCRIMINANT ANALYSIS (LDA) ----\> METHOD 1
+
+## What is LDA -\> LDA aims to find a linear combination of features that best separates the classes of the target variable.
+
+## TRAINING AND TESTING WITH ALL FEATURES (Normal Method)
+
+```{r}
+set.seed(123)
+trainIndex <- createDataPartition(y = Cancer_Data$diagnosis, p = 0.8, list = FALSE)
+train_data <- Cancer_Data[trainIndex, ]
+test_data <- Cancer_Data[-trainIndex, ]
+```
+
+## SCALING OF TRAINING AND TESTING DATA
+
+```{r}
+train_target <- train_data$diagnosis
+train_features <- train_data[, -which(names(train_data) == "diagnosis")]
+train_features_scaled <- scale(train_features)
+train_data_scaled <- data.frame(TargetVariable = train_target, train_features_scaled)
+```
+
+```{r}
+test_target <- test_data$diagnosis
+test_features <- test_data[, -which(names(test_data) == "diagnosis")]
+test_features_scaled <- scale(test_features)
+test_data_scaled <- data.frame(TargetVariable = test_target, test_features_scaled)
+```
+
+```{r}
+table(test_data_scaled$TargetVariable)
+```
+
+## APPLYING LDA MODEL
+
+```{r}
+lda_model_normal <- lda(TargetVariable ~ ., data = train_data_scaled)
+lda_pred_normal <- predict(lda_model_normal, newdata = test_data_scaled)
+acc <-  confusionMatrix(lda_pred_normal$class, test_data_scaled$TargetVariable)
+acc
+
+print("A p-value less than 0.05 indicates that the classification accuracy is significantly better than chance, and provides evidence for the usefulness of the model in correctly classifying new cases.")
+print("In this case, the p-value is very small (1.866e-15), which indicates strong evidence that the LDA model is significantly better than chance at correctly classifying new cases.")
+
+
+plot(lda_model_normal, dimen = 2)
+
+```
+
+## TRAINING AND TESTING WITH PCA FEATURES OF 8 DIMENSIONS (OPTIMAL METHOD)
+
+## APPLYING SAME MODEL LDA
+
+```{r}
+TargetCol <- Cancer_Data$diagnosis 
+pca8dimcol <- cbind(TargetCol, Cancer_Data[, dim8feat])
+```
+
+```{r}
+set.seed(123)
+trainIndexs <- createDataPartition(y = pca8dimcol$TargetCol, p = 0.8, list = FALSE)
+train_data_pc <- pca8dimcol[trainIndexs, ]
+test_data_pc <- pca8dimcol[-trainIndexs, ]
+```
+
+## Scaling
+
+```{r}
+train_target_pc <- train_data_pc$TargetCol
+train_features_pc <- train_data_pc[, -which(names(train_data_pc) == "TargetCol")]
+
+train_features_scaled_pc <- scale(train_features_pc)
+
+train_data_scaled_pc <- data.frame(TargetVariable = train_target_pc, train_features_scaled_pc)
+```
+
+```{r}
+test_target_pc <- test_data_pc$TargetCol
+test_features_pc <- test_data_pc[, -which(names(test_data_pc) == "TargetCol")]
+
+test_features_scaled_pc <- scale(test_features_pc)
+
+test_data_scaled_pc <- data.frame(TargetVariable = test_target_pc, test_features_scaled_pc)
+
+```
+
+## APPLYING LDA MODEL
+
+```{r}
+lda_model_pc_feature <- lda(TargetVariable ~ ., data = train_data_scaled_pc)
+
+lda_pred_pc <- predict(lda_model_pc_feature, newdata = test_data_scaled_pc)
+
+acc <-  confusionMatrix(lda_pred_pc$class, test_data_scaled_pc$TargetVariable)
+acc
+
+plot(lda_model_pc_feature, dimen = 2)
+```
+
+## So we were able to achieve a high accuracy by reducing the dimension of the dataset and rest will be using the PCA8 dimension features to train the model.
+
+## APPLYING MULTIPLE LOGISTIC REGRESSION WITH PCA FEATURES
+
+```{r}
+model_lr = glm(TargetVariable ~. , data = train_data_scaled_pc, family = "binomial")
+summary(model_lr)
+```
+
+```{r}
+predictions <- predict(model_lr, newdata = test_data_scaled_pc ,type = "response")
+predicted_classes <- ifelse(predictions > 0.5, 'M', 'B')
+
+accuracy <- mean(predicted_classes == test_data_scaled_pc$TargetVariable)
+cat("Accuracy:", accuracy, "\n")
+
+confusion <- table(predicted_classes, test_data_scaled_pc$TargetVariable)
+cat("Confusion Matrix:\n")
+print(confusion)
+```
+
+## PLOTING ROC CURVE
+
+```{r message=FALSE, warning=FALSE}
+auc <- roc(response = test_data_scaled_pc$TargetVariabl , predictor = predictions)
+auc
+
+plot(auc, print.auc=T)
+
+cat("An AUC of 0.996 means that the model has a very high ability to distinguish between the positive and negative classes, with very few misclassifications. An AUC value closer to 1 indicates better classification performance, while a value closer to 0.5 indicates a random or non-informative model.")
+```
+
+## APPLYING k-Nearest Neighbour Classification
+
+## we first select a value for k, which is the number of nearest neighbors to consider. Then, when we receive a new observation, we find the k nearest neighbors to that observation from the training data using a distance metric (such as Euclidean distance). Finally, we assign the class of the new observation based on the majority class among its k nearest neighbors.
+
+```{r}
+library(class)
+pre_knn <- knn(train = train_data_scaled_pc[, -which(names(train_data_scaled_pc) == "TargetCol")], test = test_data_scaled_pc[, -which(names(test_data_scaled_pc) == "TargetCol")], cl = train_data_scaled_pc$TargetVariable, k=4, prob=T)
+
+cm_knn  <- confusionMatrix(pre_knn, test_data_scaled_pc$TargetVariable)
+cm_knn
+```
+
+
+## KNN didn't perform well...
+
+## APPLYING Naive Bayesian Classification
+
+```{r}
+model_nb <- naiveBayes(TargetVariable ~ ., data = train_data_scaled_pc)
+nb_predictions <- predict(model_nb, newdata = test_data_scaled_pc)
+confusionMatrix(nb_predictions, test_data_scaled_pc$TargetVariable)
+
+```
+
+
+## APPLYING Random Forest Classification
+
+
+```{r}
+rf_model <- randomForest(TargetVariable ~ ., data = train_data_scaled_pc, ntree = 100, mtry = 2)
+rf_predictions <- predict(rf_model, newdata = test_data_scaled_pc)
+confusionMatrix(rf_predictions, test_data_scaled_pc$TargetVariable)
+```
+
+
+
+# Conclusion
+
+## So we saw the relationship between the features and the targeted column and we were able to distinguish between these 2 labels. We pretty much maintain the high accuracy by reducing the data set. Random Forest and Loistic regression was the best model to classify the cancers. 
+
+
+*******************************************************************************************************
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
