@@ -1,5 +1,5 @@
 # Cancer_Detector
-In this project I made Cancer Classification model using Dimensional Reduction techniques which can predict Breast Cancers
+In this project I made Cancer Classification models using Dimensional Reduction techniques which can predict Breast Cancers
 
 
 1) Data set Description
